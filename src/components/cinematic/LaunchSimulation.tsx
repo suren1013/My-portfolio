@@ -254,11 +254,13 @@ function AmbientAudio() {
   const scroll = useScroll();
 
   useEffect(() => {
-    introAudioRef.current = new Audio('/audio/intro.m4a');
+    // Updated to use Vite's dynamic base URL prefix for GitHub Pages
+    introAudioRef.current = new Audio(`${import.meta.env.BASE_URL}audio/intro.m4a`);
     introAudioRef.current.loop = true;
     introAudioRef.current.volume = 0; // Start at 0 to smoothly fade in
 
-    endingAudioRef.current = new Audio('/audio/ending.m4a');
+    // Updated to use Vite's dynamic base URL prefix for GitHub Pages
+    endingAudioRef.current = new Audio(`${import.meta.env.BASE_URL}audio/ending.m4a`);
     endingAudioRef.current.loop = false;
     endingAudioRef.current.volume = 0;
 
