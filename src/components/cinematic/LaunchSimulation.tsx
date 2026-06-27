@@ -246,14 +246,51 @@ function AmbientAudio() {
   const audioCtx = useRef<AudioContext | null>(null);
   const rumbleGain = useRef<GainNode | null>(null);
   const windGain = useRef<GainNode | null>(null);
+
+  const introAudioRef = useRef<HTMLAudioElement | null>(null);
+  const endingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const endingState = useRef<'unplayed' | 'playing' | 'finished'>('unplayed');
+
   const scroll = useScroll();
+
+  useEffect(() => {
+    introAudioRef.current = new Audio('/audio/intro.m4a');
+    introAudioRef.current.loop = true;
+    introAudioRef.current.volume = 0; // Start at 0 to smoothly fade in
+
+    endingAudioRef.current = new Audio('/audio/ending.m4a');
+    endingAudioRef.current.loop = false;
+    endingAudioRef.current.volume = 0;
+
+    const onEndingEnd = () => { endingState.current = 'finished'; };
+
+    endingAudioRef.current.addEventListener('ended', onEndingEnd);
+
+    return () => {
+      if (introAudioRef.current) {
+        introAudioRef.current.pause();
+        introAudioRef.current.removeAttribute('src');
+      }
+      if (endingAudioRef.current) {
+        endingAudioRef.current.removeEventListener('ended', onEndingEnd);
+        endingAudioRef.current.pause();
+        endingAudioRef.current.removeAttribute('src');
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
       if (audioCtx.current) {
         audioCtx.current.suspend();
       }
+      introAudioRef.current?.pause();
+      endingAudioRef.current?.pause();
       return;
+    }
+
+    if (audioCtx.current && audioCtx.current.state === 'suspended') {
+      audioCtx.current.resume();
     }
 
     if (!audioCtx.current) {
@@ -342,6 +379,41 @@ function AmbientAudio() {
 
     if (!enabled || !audioCtx.current) return;
       
+    const hasEndingStarted = endingState.current !== 'unplayed';
+
+    // --- INTRO AUDIO LOGIC ---
+    if (introAudioRef.current) {
+      let targetIntroVolume = 0.0;
+      
+      if (!hasEndingStarted) {
+        if (progress < 0.15) {
+          targetIntroVolume = 1.0;
+        } else if (progress < 0.45) {
+          // Cinematic smooth easing curve
+          const fadeRatio = THREE.MathUtils.clamp(1.0 - ((progress - 0.15) / 0.30), 0, 1);
+          targetIntroVolume = fadeRatio * fadeRatio * (3.0 - 2.0 * fadeRatio);
+        }
+      }
+
+      // Smooth lerp to target volume
+      introAudioRef.current.volume = THREE.MathUtils.lerp(introAudioRef.current.volume, targetIntroVolume, 0.05);
+
+      if (introAudioRef.current.volume > 0.01 && introAudioRef.current.paused) {
+        introAudioRef.current.play().catch(() => {});
+      } else if (introAudioRef.current.volume <= 0.01 && !introAudioRef.current.paused) {
+        introAudioRef.current.pause();
+      }
+    }
+
+    // --- ENDING AUDIO LOGIC ---
+    if (endingAudioRef.current && endingState.current !== 'finished') {
+      if (progress >= 0.82 && endingState.current === 'unplayed') {
+        endingState.current = 'playing';
+        endingAudioRef.current.volume = 1.0;
+        endingAudioRef.current.play().catch(() => {});
+      }
+    }
+
     if (rumbleGain.current && windGain.current) {
        if (progress < 0.35) {
          rumbleGain.current.gain.setTargetAtTime(0.05, audioCtx.current.currentTime, 0.5);
