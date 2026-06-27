@@ -615,35 +615,38 @@ function MissionOverlay() {
       <div className="h-[2500vh] w-full relative">
         
         {/* 01 LAUNCH PAD (Page 1) */}
-        <div className={`${sectionStyle} absolute top-[0vh]`}>
+        <div className="w-full h-screen flex flex-col justify-end md:justify-center pt-[15vh] md:pt-0 px-[4vw] md:px-[5vw] absolute top-[0vh]">
           <div className="absolute inset-x-0 top-0 h-[60vh] bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none -z-10" />
           <FadeBlock topVH={0}>
-            <div className="w-full max-w-2xl lg:max-w-3xl text-white mt-12 relative z-10">
-              <div className="backdrop-blur-2xl bg-white/5 border border-white/20 p-10 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] relative overflow-hidden transition-all duration-700 hover:bg-white/10">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
-                <div className="flex items-center gap-3 text-white/60 font-mono text-xs mb-6 tracking-widest">
-                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-[0_0_12px_#4ade80]" />
-                  T-MINUS 10:00:00
-                </div>
-                <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl whitespace-nowrap font-black mb-5 uppercase tracking-tighter drop-shadow-xl text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-400">SURENDHER R</h1>
-                <div className="flex flex-col items-start gap-3 mb-8">
-                  <GlassTextPill className="text-xl md:text-2xl text-white/90 font-light tracking-wide">
-                    Mechanical Engineering Student
-                  </GlassTextPill>
-                </div>
-                
-                <div className="font-mono text-xs text-white/70 flex gap-8 border-t border-white/10 pt-6 mt-4">
-                  <div className="flex flex-col">
-                    <span className="text-white/40 mb-1">VEHICLE</span>
-                    <span className="tracking-widest">HEAVY-LIFT ORBITAL</span>
+            <div className="w-full max-w-[92vw] sm:max-w-2xl lg:max-w-3xl text-white relative z-10 ml-auto mr-0 mt-[25vh] xl:mt-0">
+              <div className="backdrop-blur-[40px] bg-[#1a1c23]/40 border border-white/[0.15] p-6 sm:p-8 md:p-10 rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.6)] relative overflow-hidden transition-all duration-700 hover:bg-[#1a1c23]/50 ring-1 ring-white/5">
+                <div className="absolute inset-0 bg-gradient-to-b from-white/[0.08] via-transparent to-black/40 pointer-events-none" />
+                <div className="absolute inset-0 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)] pointer-events-none" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 text-white/60 font-mono text-xs mb-4 md:mb-6 tracking-widest">
+                    <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-[0_0_12px_#4ade80]" />
+                    T-MINUS 10:00:00
                   </div>
-                  <div className="flex flex-col border-l border-white/10 pl-8">
-                    <span className="text-white/40 mb-1">STATUS</span>
-                    <span className="text-green-400 tracking-widest drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]">NOMINAL</span>
+                  <h1 className="text-[clamp(2rem,9vw,6rem)] whitespace-nowrap font-black mb-4 md:mb-5 uppercase tracking-tighter drop-shadow-xl text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-400 leading-none">SURENDHER R</h1>
+                  <div className="flex flex-col items-start gap-3 mb-6 md:mb-8">
+                    <GlassTextPill className="text-lg md:text-2xl text-white/90 font-light tracking-wide">
+                      Mechanical Engineering Student
+                    </GlassTextPill>
                   </div>
-                  <div className="flex flex-col border-l border-white/10 pl-8">
-                    <span className="text-white/40 mb-1">ACADEMIC</span>
-                    <span className="tracking-widest font-bold text-white">CGPA 9.06</span>
+                  
+                  <div className="font-mono text-[9px] sm:text-[10px] md:text-xs text-white/70 flex justify-between sm:justify-start sm:gap-6 md:gap-8 border-t border-white/10 pt-5 md:pt-6 mt-4 w-full">
+                    <div className="flex flex-col whitespace-nowrap">
+                      <span className="text-white/40 mb-1">VEHICLE</span>
+                      <span className="tracking-widest">HEAVY-LIFT ORBITAL</span>
+                    </div>
+                    <div className="flex flex-col border-l border-white/10 pl-3 sm:pl-6 md:pl-8 whitespace-nowrap">
+                      <span className="text-white/40 mb-1">STATUS</span>
+                      <span className="text-green-400 tracking-widest drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]">NOMINAL</span>
+                    </div>
+                    <div className="flex flex-col border-l border-white/10 pl-3 sm:pl-6 md:pl-8 whitespace-nowrap">
+                      <span className="text-white/40 mb-1">ACADEMIC</span>
+                      <span className="tracking-widest font-bold text-white">CGPA 9.06</span>
+                    </div>
                   </div>
                 </div>
               </div>
