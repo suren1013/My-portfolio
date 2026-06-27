@@ -7,9 +7,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   
   return {
-    // 1. Set the base path for GitHub Pages deployment
-    // Uses the repo name in production, and root '/' for local development
-    base: mode === 'production' ? '/react-example/' : '/', 
+    // 👇 Change this line to match your exact repository name: 'My-portfolio'
+    base: mode === 'production' ? '/My-portfolio/' : '/', 
 
     plugins: [react(), tailwindcss()],
     define: {
