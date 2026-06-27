@@ -86,7 +86,7 @@ Getting Started
 
 Clone the repository:
 
-git clone [https://github.com/yourusername/your-repository.git](https://github.com/yourusername/your-repository.git)
+git clone [https://github.com/suren1013/My-portfolio.git](https://github.com/suren1013/My-portfolio.git)
 
 Install dependencies:
 
