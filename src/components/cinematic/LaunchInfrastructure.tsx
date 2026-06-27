@@ -1,9 +1,11 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
-import { useScroll } from '@react-three/drei';
+import { useFrame, invalidate } from '@react-three/fiber';
+import { useScroll, Instances, Instance } from '@react-three/drei';
 
-export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefObject<THREE.PointLight> }) {
+export const LaunchInfrastructure = React.memo(function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefObject<THREE.PointLight> }) {
+  const rootRef = useRef<THREE.Group>(null);
+  
   // Generate procedural textures for the infrastructure to add surface detail (seams, weathering)
   const { towerMat, padMat, armMat, pipeMat, darkMetalMat } = useMemo(() => {
     const createNoiseTexture = (baseColor: string, type: 'tower' | 'pad') => {
@@ -165,6 +167,46 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
   const hydraulicRef3 = useRef<THREE.Mesh>(null);
   const beaconsRef = useRef<THREE.Group>(null);
 
+  useEffect(() => {
+    if (rootRef.current) {
+      rootRef.current.traverse((child) => {
+        // Skip dynamic parts
+        if (
+          child === arm1Ref.current ||
+          child === arm2Ref.current ||
+          child === arm3Ref.current ||
+          child === hydraulicRef1.current ||
+          child === hydraulicRef2.current ||
+          child === hydraulicRef3.current ||
+          child === vaporRef.current ||
+          child === beaconsRef.current
+        ) {
+          // keep them updating, or just let their specific update logic handle it.
+          // actually they animate rotation/position so they need matrixAutoUpdate = true
+          return; 
+        }
+        
+        // Disable auto update for static meshes
+        if ((child as THREE.Mesh).isMesh || (child as THREE.Group).isGroup) {
+          // If it's a child of a dynamic part, don't disable
+          let isDynamicChild = false;
+          let parent = child.parent;
+          while (parent) {
+            if (parent === arm1Ref.current || parent === arm2Ref.current || parent === arm3Ref.current || parent === vaporRef.current) {
+               isDynamicChild = true;
+               break;
+            }
+            parent = parent.parent;
+          }
+          if (!isDynamicChild) {
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+          }
+        }
+      });
+    }
+  }, []);
+
   useFrame(({ clock }) => {
     if (vaporRef.current) {
       vaporRef.current.rotation.y = clock.getElapsedTime() * 0.02;
@@ -193,6 +235,9 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
     if (arm1Ref.current) {
       arm1Ref.current.rotation.y = THREE.MathUtils.lerp(arm1Ref.current.rotation.y, targetAngle, 0.08);
       if (hydraulicRef1.current) hydraulicRef1.current.position.x = 1.0 - (arm1Ref.current.rotation.y / (Math.PI / -2.5)) * 0.3;
+      if (Math.abs(arm1Ref.current.rotation.y - targetAngle) > 0.01) {
+        invalidate();
+      }
     }
     if (arm2Ref.current) {
       arm2Ref.current.rotation.y = THREE.MathUtils.lerp(arm2Ref.current.rotation.y, targetAngle, 0.08);
@@ -205,7 +250,7 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
   });
 
   return (
-    <group>
+    <group ref={rootRef}>
       {/* ---------------- GROUND SUPPORT & PAD ---------------- */}
       <mesh receiveShadow position={[0, -8, 0]}>
         <boxGeometry args={[35, 2, 35]} />
@@ -293,56 +338,33 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
           <primitive object={towerMat} attach="material" />
         </mesh>
         
-        {/* Cross-braced Steel Trusses (Visual approximation with multiple intersecting thin boxes) */}
-        {[...Array(6)].map((_, i) => {
-          const yPos = -12 + i * 4.5;
-          return (
-            <group key={`truss-${i}`} position={[0, yPos, 0]}>
-              {/* Horizontal support */}
-              <mesh castShadow receiveShadow position={[0, 2.25, 0]}>
-                <boxGeometry args={[4.2, 0.2, 4.2]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              {/* X-bracing on sides with proper beams and slight offsets to prevent z-fighting */}
-              {/* Right Face (x = 2.05) - YZ plane, rotate around X */}
-              <mesh castShadow receiveShadow position={[2.05, 0, 0.02]} rotation={[Math.PI / 4, 0, 0]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              <mesh castShadow receiveShadow position={[2.05, 0, -0.02]} rotation={[-Math.PI / 4, 0, 0]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              {/* Left Face (x = -2.05) - YZ plane, rotate around X */}
-              <mesh castShadow receiveShadow position={[-2.05, 0, 0.02]} rotation={[Math.PI / 4, 0, 0]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              <mesh castShadow receiveShadow position={[-2.05, 0, -0.02]} rotation={[-Math.PI / 4, 0, 0]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              {/* Front Face (z = 2.05) - XY plane, rotate around Z */}
-              <mesh castShadow receiveShadow position={[0.02, 0, 2.05]} rotation={[0, 0, Math.PI / 4]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              <mesh castShadow receiveShadow position={[-0.02, 0, 2.05]} rotation={[0, 0, -Math.PI / 4]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              {/* Back Face (z = -2.05) - XY plane, rotate around Z */}
-              <mesh castShadow receiveShadow position={[0.02, 0, -2.05]} rotation={[0, 0, Math.PI / 4]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-              <mesh castShadow receiveShadow position={[-0.02, 0, -2.05]} rotation={[0, 0, -Math.PI / 4]}>
-                <boxGeometry args={[0.15, 6.5, 0.15]} />
-                <primitive object={darkMetalMat} attach="material" />
-              </mesh>
-            </group>
-          )
-        })}
+        {/* Cross-braced Steel Trusses (Instances for performance) */}
+        <Instances castShadow receiveShadow>
+          <boxGeometry args={[4.2, 0.2, 4.2]} />
+          <primitive object={darkMetalMat} attach="material" />
+          {[...Array(6)].map((_, i) => (
+             <Instance key={`truss-h-${i}`} position={[0, -12 + i * 4.5 + 2.25, 0]} />
+          ))}
+        </Instances>
+        <Instances castShadow receiveShadow>
+          <boxGeometry args={[0.15, 6.5, 0.15]} />
+          <primitive object={darkMetalMat} attach="material" />
+          {[...Array(6)].map((_, i) => {
+            const yPos = -12 + i * 4.5;
+            return (
+              <group key={`truss-diag-${i}`} position={[0, yPos, 0]}>
+                <Instance position={[2.05, 0, 0.02]} rotation={[Math.PI / 4, 0, 0]} />
+                <Instance position={[2.05, 0, -0.02]} rotation={[-Math.PI / 4, 0, 0]} />
+                <Instance position={[-2.05, 0, 0.02]} rotation={[Math.PI / 4, 0, 0]} />
+                <Instance position={[-2.05, 0, -0.02]} rotation={[-Math.PI / 4, 0, 0]} />
+                <Instance position={[0.02, 0, 2.05]} rotation={[0, 0, Math.PI / 4]} />
+                <Instance position={[-0.02, 0, 2.05]} rotation={[0, 0, -Math.PI / 4]} />
+                <Instance position={[0.02, 0, -2.05]} rotation={[0, 0, Math.PI / 4]} />
+                <Instance position={[-0.02, 0, -2.05]} rotation={[0, 0, -Math.PI / 4]} />
+              </group>
+            )
+          })}
+        </Instances>
 
         {/* Service Platforms */}
         {[10, 4, -2, -8].map((y) => (
@@ -382,13 +404,14 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
           <cylinderGeometry args={[0.25, 0.25, 28.4, 16]} />
           <primitive object={pipeMat} attach="material" />
         </mesh>
-        {/* Pipe Brackets */}
-        {[...Array(14)].map((_, i) => (
-          <mesh key={`pipe-bracket-${i}`} position={[2.1, -13 + i * 2, -1.2]} castShadow>
-            <boxGeometry args={[0.6, 0.1, 0.6]} />
-            <primitive object={darkMetalMat} attach="material" />
-          </mesh>
-        ))}
+        {/* Pipe Brackets (Instances for performance) */}
+        <Instances castShadow>
+          <boxGeometry args={[0.6, 0.1, 0.6]} />
+          <primitive object={darkMetalMat} attach="material" />
+          {[...Array(14)].map((_, i) => (
+            <Instance key={`pipe-bracket-${i}`} position={[2.1, -13 + i * 2, -1.2]} />
+          ))}
+        </Instances>
         
         <mesh position={[2.2, 0.15, -0.6]} castShadow receiveShadow>
           <cylinderGeometry args={[0.15, 0.15, 28.3, 16]} />
@@ -511,4 +534,4 @@ export function LaunchInfrastructure({ padLightRef }: { padLightRef: React.RefOb
 
     </group>
   );
-}
+});

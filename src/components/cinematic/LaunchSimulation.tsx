@@ -1,10 +1,27 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
+import { Canvas, useFrame, invalidate } from '@react-three/fiber';
 import { ScrollControls, Scroll, useScroll, Stars, Environment, Html, useProgress } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, Noise, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
+import { create } from 'zustand';
 import { Rocket } from './Rocket';
 import { LaunchInfrastructure } from './LaunchInfrastructure';
+
+export const useQualityStore = create<{
+  isMobile: boolean;
+  isTablet: boolean;
+  dpr: number;
+  quality: 'high' | 'medium' | 'low';
+}>((set) => {
+  const isMobile = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  const isTablet = typeof window !== 'undefined' ? (window.innerWidth >= 768 && window.innerWidth < 1024) : false;
+  return {
+    isMobile,
+    isTablet,
+    dpr: typeof window !== 'undefined' ? (isMobile ? Math.min(1.25, window.devicePixelRatio || 1) : isTablet ? Math.min(1.5, window.devicePixelRatio || 1) : window.devicePixelRatio || 1) : 1,
+    quality: isMobile ? 'low' : isTablet ? 'medium' : 'high',
+  };
+});
 
 function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -121,7 +138,7 @@ function CustomCursor() {
 
 function GlassTextPill({ children, className = "" }: { children: React.ReactNode, className?: string }) {
   return (
-    <div className={`relative inline-block bg-[#1a1a1a]/40 backdrop-blur-[16px] border border-white/[0.15] rounded-[10px] px-5 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)] overflow-hidden ${className}`}>
+    <div className={`relative inline-block bg-[#1a1a1a]/40 backdrop-blur-sm md:backdrop-blur-[16px] border border-white/[0.15] rounded-[10px] px-5 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)] overflow-hidden ${className}`}>
       <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-40 pointer-events-none" />
       <div className="absolute inset-0 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] rounded-[10px] pointer-events-none" />
       <span className="relative z-10" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
@@ -350,6 +367,13 @@ function DynamicStarfield() {
   const midRef = useRef<THREE.Group>(null);
   const fgRef = useRef<THREE.Group>(null);
   const dustRef = useRef<THREE.Group>(null);
+  const { quality } = useQualityStore();
+
+  const getStarCount = (base: number) => {
+    if (quality === 'low') return Math.floor(base * 0.4);
+    if (quality === 'medium') return Math.floor(base * 0.7);
+    return base;
+  };
 
   useFrame((state) => {
     // Parallax effect: The closer the layer, the less it follows the camera perfectly (so it moves relative to camera)
@@ -363,15 +387,15 @@ function DynamicStarfield() {
     <>
       {/* Background: Very distant, almost no motion */}
       <group ref={bgRef}>
-        <Stars radius={800} depth={200} count={5000} factor={3} saturation={0.8} speed={0.05} fade />
+        <Stars radius={800} depth={200} count={getStarCount(5000)} factor={3} saturation={0.8} speed={0.05} fade />
       </group>
       {/* Mid: Slower motion */}
       <group ref={midRef}>
-        <Stars radius={400} depth={150} count={2500} factor={5} saturation={0.6} speed={0.15} fade />
+        <Stars radius={400} depth={150} count={getStarCount(2500)} factor={5} saturation={0.6} speed={0.15} fade />
       </group>
       {/* Foreground: Tiny nearby stars, slightly more motion */}
       <group ref={fgRef}>
-        <Stars radius={200} depth={100} count={1000} factor={2.5} saturation={0.4} speed={0.3} fade />
+        <Stars radius={200} depth={100} count={getStarCount(1000)} factor={2.5} saturation={0.4} speed={0.3} fade />
       </group>
       
       {/* Faint Nebula Dust / Milky Way band */}
@@ -391,19 +415,22 @@ function DynamicStarfield() {
 
 function AtmosphereColor() {
   const scroll = useScroll();
+  const colorDawn = useMemo(() => new THREE.Color('#040e1f'), []);
+  const colorSpace = useMemo(() => new THREE.Color('#000000'), []);
+  
   useFrame((state) => {
     const t = scroll.offset;
     if (state.scene.background && (state.scene.background as THREE.Color).isColor) {
       const bgColor = state.scene.background as THREE.Color;
       if (t < 0.25) {
-        bgColor.set('#040e1f'); // Dawn deep blue
+        bgColor.copy(colorDawn); // Dawn deep blue
       } else if (t < 0.6) {
         const progress = (t - 0.25) / 0.35;
         // Exponential fade to black for space transition
         const eased = Math.pow(progress, 1.5);
-        bgColor.lerpColors(new THREE.Color('#040e1f'), new THREE.Color('#000000'), eased);
+        bgColor.lerpColors(colorDawn, colorSpace, eased);
       } else {
-        bgColor.set('#000000');
+        bgColor.copy(colorSpace);
       }
     }
   });
@@ -416,6 +443,8 @@ function LaunchEnvironment() {
   const earthRef = useRef<THREE.Mesh>(null);
   const padLightRef = useRef<THREE.PointLight>(null);
   const cameraTarget = useRef(new THREE.Vector3(0, 0, 0));
+  const targetCamPos = useMemo(() => new THREE.Vector3(), []);
+  const targetLook = useMemo(() => new THREE.Vector3(), []);
 
   useFrame((state) => {
     const t = scroll.offset;
@@ -513,8 +542,10 @@ function LaunchEnvironment() {
     const driftY = Math.cos(state.clock.elapsedTime * 0.15) * 0.1;
 
     // Cinematic stabilization (inertial damping)
-    state.camera.position.lerp(new THREE.Vector3(camX + mouseX + shakeX + driftX, camY + mouseY + shakeY + driftY, camZ + shakeZ), 0.03);
-    cameraTarget.current.lerp(new THREE.Vector3(0, lookY, 0), 0.04);
+    targetCamPos.set(camX + mouseX + shakeX + driftX, camY + mouseY + shakeY + driftY, camZ + shakeZ);
+    state.camera.position.lerp(targetCamPos, 0.03);
+    targetLook.set(0, lookY, 0);
+    cameraTarget.current.lerp(targetLook, 0.04);
     state.camera.lookAt(cameraTarget.current);
 
     // Imperceptible focus breathing
@@ -619,9 +650,10 @@ function MissionOverlay() {
           <div className="absolute inset-x-0 top-0 h-[60vh] bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none -z-10" />
           <FadeBlock topVH={0}>
             <div className="w-full max-w-[92vw] sm:max-w-2xl lg:max-w-3xl text-white relative z-10 ml-auto mr-0 mt-[25vh] xl:mt-0">
-              <div className="backdrop-blur-[40px] bg-[#1a1c23]/40 border border-white/[0.15] p-6 sm:p-8 md:p-10 rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.6)] relative overflow-hidden transition-all duration-700 hover:bg-[#1a1c23]/50 ring-1 ring-white/5">
-                <div className="absolute inset-0 bg-gradient-to-b from-white/[0.08] via-transparent to-black/40 pointer-events-none" />
-                <div className="absolute inset-0 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)] pointer-events-none" />
+              <div className="backdrop-blur-lg md:backdrop-blur-[40px] bg-gradient-to-b from-[#2a2d36]/70 to-[#1a1c23]/80 md:from-[#2a2d36]/50 md:to-[#1a1c23]/60 border border-white/[0.15] p-6 sm:p-8 md:p-10 rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.6)] relative overflow-hidden transition-all duration-700 hover:bg-[#2a2d36]/80 md:hover:bg-[#2a2d36]/60 ring-1 ring-white/10 before:absolute before:inset-0 before:bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjQiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyIvPjwvc3ZnPg==')] before:opacity-50">
+                <div className="absolute inset-0 bg-gradient-to-b from-white/[0.12] via-transparent to-black/50 pointer-events-none" />
+                <div className="absolute inset-0 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.5)] pointer-events-none rounded-2xl" />
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent opacity-50" />
                 <div className="relative z-10">
                   <div className="flex items-center gap-3 text-white/60 font-mono text-xs mb-4 md:mb-6 tracking-widest">
                     <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-[0_0_12px_#4ade80]" />
@@ -660,7 +692,7 @@ function MissionOverlay() {
             <div className="max-w-md text-white inline-block">
               <span className="font-mono text-sm tracking-widest text-blue-400 mb-2 block drop-shadow-md">02 / PROPELLANT LOADING</span>
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Foundation</h2>
-              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-xl text-left shadow-2xl">
+              <div className="font-mono text-xs uppercase bg-[#1a1c23]/80 md:bg-[#1a1c23]/60 border border-white/10 p-6 backdrop-blur-md md:backdrop-blur-xl text-left shadow-2xl">
                 <div className="mb-4">
                    <div className="text-white/50">Core System</div>
                    <div className="text-lg text-white">B.Tech Mechanical Engineering</div>
@@ -684,7 +716,7 @@ function MissionOverlay() {
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Onboard Systems</h2>
               <div className="grid grid-cols-2 gap-2 font-mono text-xs shadow-2xl">
                 {['ANSYS Workbench', 'SolidWorks', 'MATLAB', 'Python', 'Arduino', 'C/C++'].map(sys => (
-                  <div key={sys} className="border border-orange-500/30 bg-orange-900/40 p-3 flex justify-between items-center backdrop-blur-xl">
+                  <div key={sys} className="border border-orange-500/30 bg-orange-900/40 p-3 flex justify-between items-center backdrop-blur-md md:backdrop-blur-xl">
                     {sys}
                     <div className="w-1.5 h-1.5 bg-orange-500 rounded-full shadow-[0_0_10px_#f97316]" />
                   </div>
@@ -700,7 +732,7 @@ function MissionOverlay() {
             <div className="max-w-md text-white inline-block">
               <span className="font-mono text-sm tracking-widest text-white/50 mb-2 block drop-shadow-md">04 / LIFTOFF</span>
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Clear the Tower</h2>
-              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
+              <div className="font-mono text-xs uppercase bg-[#1a1c23]/80 md:bg-[#1a1c23]/60 border border-white/10 p-6 backdrop-blur-md md:backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
                  <div className="text-lg text-white mb-2 font-bold relative z-10">Ascent Profile</div>
                  <p className="text-white/70 normal-case mb-4 tracking-normal relative z-10">Pitch and roll program initiated. Vehicle clearing launch pad structures.</p>
                  <div className="text-green-400 relative z-10">SYSTEMS NOMINAL</div>
@@ -715,7 +747,7 @@ function MissionOverlay() {
             <div className="max-w-md text-white inline-block">
               <span className="font-mono text-sm tracking-widest text-white/50 mb-2 block drop-shadow-md">05 / ASCENT PHASE</span>
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Mission: Metamaterials</h2>
-              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
+              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-md md:backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 right-0 p-2 text-white/10 text-6xl font-black">M1</div>
                 <div className="text-lg text-white mb-2 font-bold relative z-10">Vibration Isolation Mount</div>
                 <p className="text-white/70 normal-case mb-4 tracking-normal relative z-10">Designing re-entrant auxetic geometry requiring complex structural analysis to reduce transmissibility.</p>
@@ -731,7 +763,7 @@ function MissionOverlay() {
             <div className="max-w-md text-white">
               <span className="font-mono text-sm tracking-widest text-red-500 mb-2 block animate-pulse drop-shadow-md">06 / MAX-Q (DYNAMIC PRESSURE)</span>
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Mission: Thermal</h2>
-              <div className="font-mono text-xs uppercase bg-black/60 border border-red-500/30 p-6 backdrop-blur-xl relative overflow-hidden shadow-2xl">
+              <div className="font-mono text-xs uppercase bg-black/60 border border-red-500/30 p-6 backdrop-blur-md md:backdrop-blur-xl relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 right-0 p-2 text-red-500/10 text-6xl font-black">M2</div>
                 <div className="text-lg text-white mb-2 font-bold relative z-10">Riser Optimisation</div>
                 <p className="text-white/70 normal-case mb-4 tracking-normal relative z-10">Simulating transient thermal casting solidification accurately to extend solidification time within riser.</p>
@@ -747,7 +779,7 @@ function MissionOverlay() {
             <div className="max-w-md text-white text-right">
               <span className="font-mono text-sm tracking-widest text-white/50 mb-2 block drop-shadow-md">07 / STAGE SEPARATION</span>
               <h2 className="text-4xl font-black mb-6 uppercase border-b border-white/20 pb-4 drop-shadow-lg">Mission: IoT</h2>
-              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
+              <div className="font-mono text-xs uppercase bg-black/60 border border-white/10 p-6 backdrop-blur-md md:backdrop-blur-xl text-left relative overflow-hidden shadow-2xl">
                  <div className="absolute top-0 right-0 p-2 text-white/10 text-6xl font-black">M3</div>
                  <div className="text-lg text-white mb-2 font-bold relative z-10">Smart Water Routing</div>
                  <p className="text-white/70 normal-case mb-4 tracking-normal relative z-10">Auto-segregate industrial effluent by TDS concentration. Patent applicability under review.</p>
@@ -765,12 +797,12 @@ function MissionOverlay() {
               <h2 className="text-5xl md:text-7xl font-black mb-8 uppercase drop-shadow-lg">Satellites in Orbit</h2>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-12 shadow-2xl">
-                <div className="bg-black/60 backdrop-blur-xl p-6 border border-white/20 relative overflow-hidden">
+                <div className="bg-black/60 backdrop-blur-md md:backdrop-blur-xl p-6 border border-white/20 relative overflow-hidden">
                    <div className="absolute top-2 right-2 text-xs font-mono text-white/20">PAYLOAD-A</div>
                    <h3 className="text-xl font-bold mb-2 font-mono uppercase relative z-10">AI Casting Assistant</h3>
                    <p className="text-sm text-white/70 font-light relative z-10">Bridging mechanical engineering with AI. Outputs optimised riser configurations.</p>
                 </div>
-                <div className="bg-black/60 backdrop-blur-xl p-6 border border-white/20 relative overflow-hidden">
+                <div className="bg-black/60 backdrop-blur-md md:backdrop-blur-xl p-6 border border-white/20 relative overflow-hidden">
                    <div className="absolute top-2 right-2 text-xs font-mono text-white/20">PAYLOAD-B</div>
                    <h3 className="text-xl font-bold mb-2 font-mono uppercase relative z-10">Portfolio Engine</h3>
                    <p className="text-sm text-white/70 font-light relative z-10">Deployed fully interactive 3D spaceflight simulation for technical demonstration.</p>
@@ -795,7 +827,7 @@ function MissionOverlay() {
               {/* Radial vignette behind the tagline area */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[180%] h-[300%] bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.3)_0%,transparent_75%)] pointer-events-none -z-10" />
               
-              <div className="relative font-mono text-sm text-white bg-[#1a1a1a]/30 backdrop-blur-[18px] border border-white/[0.12] rounded-[14px] px-8 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.2)] overflow-hidden">
+              <div className="relative font-mono text-sm text-white bg-[#1a1a1a]/30 backdrop-blur-md md:backdrop-blur-[18px] border border-white/[0.12] rounded-[14px] px-8 py-4 shadow-[0_8px_24px_rgba(0,0,0,0.2)] overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent opacity-30 pointer-events-none" />
                 <div className="absolute inset-0 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] rounded-[14px] pointer-events-none" />
                 <span 
@@ -855,12 +887,19 @@ function GlobalUI() {
 }
 
 export default function LaunchSimulation() {
+  const { quality, dpr } = useQualityStore();
   return (
     <div className="w-full h-screen bg-black overflow-hidden cursor-none relative">
       <CustomCursor />
       <LoadingScreen />
       <GlobalUI />
-      <Canvas shadows camera={{ position: [0, 2, 15], fov: 45, near: 0.5, far: 3000 }} gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0, antialias: true, logarithmicDepthBuffer: false }}>
+      <Canvas 
+        shadows={quality === 'high'}
+        dpr={dpr}
+        frameloop="demand"
+        camera={{ position: [0, 2, 15], fov: 45, near: 0.5, far: 3000 }} 
+        gl={{ toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0, antialias: quality !== 'low', logarithmicDepthBuffer: false }}
+      >
         <color attach="background" args={['#040e1f']} />
         
         <ScrollControls pages={25} damping={0.25}>
@@ -871,11 +910,11 @@ export default function LaunchSimulation() {
           <MissionOverlay />
         </ScrollControls>
         
-        <EffectComposer enableNormalPass={false} multisampling={4}>
-          <Bloom luminanceThreshold={1.2} mipmapBlur intensity={1.5} />
-          <Noise opacity={0.03} />
+        <EffectComposer enableNormalPass={false} multisampling={quality === 'high' ? 4 : quality === 'medium' ? 2 : 0}>
+          <Bloom luminanceThreshold={1.2} mipmapBlur={quality === 'high'} intensity={1.5} resolutionScale={quality === 'low' ? 0.5 : 1} />
+          {quality !== 'low' && <Noise opacity={0.03} />}
           <Vignette eskil={false} offset={0.1} darkness={1.1} />
-          <ChromaticAberration offset={new THREE.Vector2(0.0005, 0.0005)} radialModulation={false} modulationOffset={0} />
+          {quality === 'high' && <ChromaticAberration offset={new THREE.Vector2(0.0005, 0.0005)} radialModulation={false} modulationOffset={0} />}
         </EffectComposer>
       </Canvas>
       

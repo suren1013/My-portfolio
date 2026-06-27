@@ -1,56 +1,75 @@
 import React, { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, invalidate } from '@react-three/fiber';
 import { useScroll } from '@react-three/drei';
 import * as THREE from 'three';
+import { useQualityStore } from './LaunchSimulation';
+
+// Fast random number pool to eliminate thousands of fastRandom() calls per frame
+const RANDOM_POOL_SIZE = 10000;
+const randomPool = new Float32Array(RANDOM_POOL_SIZE);
+for(let i = 0; i < RANDOM_POOL_SIZE; i++) randomPool[i] = Math.random();
+let randomIdx = 0;
+function fastRandom() {
+  randomIdx = (randomIdx + 1) % RANDOM_POOL_SIZE;
+  return randomPool[randomIdx];
+}
 
 function ExhaustParticles() {
   const pointsRef = useRef<THREE.Points>(null);
   const scroll = useScroll();
-  const particleCount = 2500;
+  const { quality } = useQualityStore();
+  const particleCount = quality === 'high' ? 2500 : quality === 'medium' ? 1200 : 500;
 
   const [positions, velocities, lifetimes] = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
     const vel = new Float32Array(particleCount * 3);
     const life = new Float32Array(particleCount);
     for (let i = 0; i < particleCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 3;
-      pos[i * 3 + 1] = -11 - Math.random() * 5;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 3;
+      pos[i * 3] = (fastRandom() - 0.5) * 3;
+      pos[i * 3 + 1] = -11 - fastRandom() * 5;
+      pos[i * 3 + 2] = (fastRandom() - 0.5) * 3;
       
-      vel[i * 3] = (Math.random() - 0.5) * 1.5;
-      vel[i * 3 + 1] = -1 - Math.random() * 3;
-      vel[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
+      vel[i * 3] = (fastRandom() - 0.5) * 1.5;
+      vel[i * 3 + 1] = -1 - fastRandom() * 3;
+      vel[i * 3 + 2] = (fastRandom() - 0.5) * 1.5;
       
-      life[i] = Math.random();
+      life[i] = fastRandom();
     }
     return [pos, vel, life];
-  }, []);
+  }, [particleCount]);
 
+  let previouslyLiftingOff = false;
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
     const t = scroll.offset;
-    const isLiftingOff = t > 0.40 && t < 0.85;
+    const isLiftingOff = t > 0.38 && t < 0.85; // slightly wider window for invalidation padding
     
-    const positionsAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
-    
-    for (let i = 0; i < particleCount; i++) {
-      if (isLiftingOff) {
+    if (isLiftingOff) {
+      invalidate();
+      const positionsAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < particleCount; i++) {
         lifetimes[i] -= delta * 1.5;
         if (lifetimes[i] <= 0) {
           lifetimes[i] = 1.0;
-          positionsAttr.array[i * 3] = (Math.random() - 0.5) * 2;
+          positionsAttr.array[i * 3] = (fastRandom() - 0.5) * 2;
           positionsAttr.array[i * 3 + 1] = -10.5;
-          positionsAttr.array[i * 3 + 2] = (Math.random() - 0.5) * 2;
+          positionsAttr.array[i * 3 + 2] = (fastRandom() - 0.5) * 2;
         }
         
         positionsAttr.array[i * 3] += velocities[i * 3] * delta * 25;
         positionsAttr.array[i * 3 + 1] += velocities[i * 3 + 1] * delta * 25;
         positionsAttr.array[i * 3 + 2] += velocities[i * 3 + 2] * delta * 25;
-      } else {
+      }
+      positionsAttr.needsUpdate = true;
+      previouslyLiftingOff = true;
+    } else if (previouslyLiftingOff) {
+      const positionsAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < particleCount; i++) {
         positionsAttr.array[i * 3 + 1] = 10000;
       }
+      positionsAttr.needsUpdate = true;
+      previouslyLiftingOff = false;
     }
-    positionsAttr.needsUpdate = true;
   });
 
   return (
@@ -78,7 +97,8 @@ function ExhaustParticles() {
 function VentingParticles() {
   const pointsRef = useRef<THREE.Points>(null);
   const scroll = useScroll();
-  const particleCount = 2500;
+  const { quality } = useQualityStore();
+  const particleCount = quality === 'high' ? 2500 : quality === 'medium' ? 1200 : 500;
 
   const { positions, lifetimes, speeds, sizes, opacities, vaporTex } = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
@@ -89,10 +109,10 @@ function VentingParticles() {
 
     for (let i = 0; i < particleCount; i++) {
       pos[i * 3 + 1] = 10000; // hide initially
-      life[i] = Math.random();
+      life[i] = fastRandom();
       
-      sz[i] = Math.random() * 2.0 + 1.0;
-      op[i] = Math.random() * 0.15 + 0.02;
+      sz[i] = fastRandom() * (quality === 'high' ? 2.0 : 3.5) + (quality === 'high' ? 1.0 : 1.5);
+      op[i] = fastRandom() * 0.15 + 0.02;
     }
 
     // Soft radial gradient for vapor
@@ -109,12 +129,13 @@ function VentingParticles() {
     const tex = new THREE.CanvasTexture(canvas);
 
     return { positions: pos, lifetimes: life, speeds: spd, sizes: sz, opacities: op, vaporTex: tex };
-  }, []);
+  }, [particleCount, quality]);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
     const t = scroll.offset;
     const isVenting = t < 0.40;
+    let hasVisibleParticles = false;
     
     // Realistic pressure-relief cycles (2-5 sec bursts, pauses, big purge before ignition)
     const time = state.clock.elapsedTime;
@@ -138,25 +159,25 @@ function VentingParticles() {
     const opacitiesAttr = pointsRef.current.geometry.attributes.opacity as THREE.BufferAttribute;
     
     for (let i = 0; i < particleCount; i++) {
-      lifetimes[i] -= delta * (0.2 + Math.random() * 0.2); // softer lifetime decay
+      lifetimes[i] -= delta * (0.2 + fastRandom() * 0.2); // softer lifetime decay
       
       if (lifetimes[i] <= 0) {
-        if (emissionRate > Math.random()) {
+        if (emissionRate > fastRandom()) {
           lifetimes[i] = 1.0;
           
-          const source = Math.random();
+          const source = fastRandom();
           let spawnY = 0;
           if (source < 0.33) spawnY = 15.5; // Upper stage
           else if (source < 0.66) spawnY = 9.5; // Interstage
           else spawnY = 3.0; // First stage
           
-          positionsAttr.array[i * 3] = -1.2 + (Math.random() - 0.5) * 0.3;
-          positionsAttr.array[i * 3 + 1] = spawnY + (Math.random() - 0.5) * 0.4;
-          positionsAttr.array[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+          positionsAttr.array[i * 3] = -1.2 + (fastRandom() - 0.5) * 0.3;
+          positionsAttr.array[i * 3 + 1] = spawnY + (fastRandom() - 0.5) * 0.4;
+          positionsAttr.array[i * 3 + 2] = (fastRandom() - 0.5) * 0.3;
           
-          speeds[i * 3] = -0.5 + (Math.random() - 0.5) * 0.4; // crosswind away from rocket
-          speeds[i * 3 + 1] = -0.5 + Math.random() * 0.2; // initial downward force from vent
-          speeds[i * 3 + 2] = (Math.random() - 0.5) * 0.4;
+          speeds[i * 3] = -0.5 + (fastRandom() - 0.5) * 0.4; // crosswind away from rocket
+          speeds[i * 3 + 1] = -0.5 + fastRandom() * 0.2; // initial downward force from vent
+          speeds[i * 3 + 2] = (fastRandom() - 0.5) * 0.4;
           
           sizesAttr.array[i] = sizes[i] * 0.5; 
           opacitiesAttr.array[i] = opacities[i] * 2.0; 
@@ -164,6 +185,7 @@ function VentingParticles() {
           positionsAttr.array[i * 3 + 1] = 10000; // hide
         }
       } else if (positionsAttr.array[i * 3 + 1] < 5000) {
+        hasVisibleParticles = true;
         const lifeFactor = lifetimes[i]; 
         const invLife = 1.0 - lifeFactor;
         
@@ -182,9 +204,12 @@ function VentingParticles() {
       }
     }
     
-    positionsAttr.needsUpdate = true;
-    sizesAttr.needsUpdate = true;
-    opacitiesAttr.needsUpdate = true;
+    if (hasVisibleParticles || (isVenting && emissionRate > 0)) {
+      if (hasVisibleParticles) invalidate();
+      positionsAttr.needsUpdate = true;
+      sizesAttr.needsUpdate = true;
+      opacitiesAttr.needsUpdate = true;
+    }
   });
 
   return (
@@ -254,7 +279,7 @@ function HeatDistortion() {
   );
 }
 
-export function Rocket() {
+export const Rocket = React.memo(function Rocket() {
   const rocketRef = useRef<THREE.Group>(null);
   const stage1Ref = useRef<THREE.Group>(null);
   const engineGlowRef = useRef<THREE.PointLight>(null);
@@ -273,13 +298,13 @@ export function Rocket() {
 
       // Subtle Noise
       for (let i = 0; i < 100000; i++) {
-        const val = Math.random();
+        const val = fastRandom();
         ctx.fillStyle = type === 'color' 
           ? `rgba(0,0,0,${val * 0.02})` 
           : type === 'roughness' 
             ? `rgba(255,255,255,${val * 0.15})` 
             : `rgba(255,255,255,${val * 0.05})`;
-        ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
+        ctx.fillRect(fastRandom() * 1024, fastRandom() * 1024, 2, 2);
       }
 
       // Panel Lines
@@ -295,7 +320,7 @@ export function Rocket() {
 
       for (let i = 0; i < 32; i++) {
         // Horizontals
-        if (Math.random() > 0.1) {
+        if (fastRandom() > 0.1) {
           ctx.strokeStyle = type === 'color' ? 'rgba(0,0,0,0.08)' : type === 'roughness' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.5)';
           ctx.beginPath();
           ctx.moveTo(0, (i * 1024) / 32);
@@ -303,8 +328,8 @@ export function Rocket() {
           ctx.stroke();
 
           // Tiny access panels and fasteners
-          if (Math.random() > 0.4) {
-            const px = Math.random() * 1024;
+          if (fastRandom() > 0.4) {
+            const px = fastRandom() * 1024;
             const py = (i * 1024) / 32 - 8;
             ctx.strokeRect(px, py, 16, 16);
             if (type === 'color') {
@@ -312,7 +337,7 @@ export function Rocket() {
               ctx.fillRect(px, py, 16, 16);
               
               // Warning Decal / Alignment Mark
-              if (Math.random() > 0.8) {
+              if (fastRandom() > 0.8) {
                 ctx.fillStyle = '#cc3300';
                 ctx.fillRect(px - 10, py + 4, 6, 8);
                 // Serial text abstraction
@@ -325,9 +350,9 @@ export function Rocket() {
           
           // Fasteners along horizontal seams
           for (let j = 0; j < 32; j++) {
-            if (Math.random() > 0.2) {
-              const fx = (j * 1024) / 32 + (Math.random() * 10);
-              const fy = (i * 1024) / 32 + (Math.random() > 0.5 ? 2 : -2);
+            if (fastRandom() > 0.2) {
+              const fx = (j * 1024) / 32 + (fastRandom() * 10);
+              const fy = (i * 1024) / 32 + (fastRandom() > 0.5 ? 2 : -2);
               if (type === 'color') {
                 ctx.fillStyle = 'rgba(0,0,0,0.2)';
                 ctx.fillRect(fx, fy, 2, 2);
@@ -418,11 +443,11 @@ export function Rocket() {
         intensity = (t - 0.30) * 10;
         opacity = intensity * 0.8;
         engineGlowRef.current.intensity = intensity * 80;
-        rocketRef.current.position.x = (Math.random() - 0.5) * 0.05 * intensity;
-        rocketRef.current.position.z = (Math.random() - 0.5) * 0.05 * intensity;
+        rocketRef.current.position.x = (fastRandom() - 0.5) * 0.05 * intensity;
+        rocketRef.current.position.z = (fastRandom() - 0.5) * 0.05 * intensity;
       } else if (t >= 0.40 && t < 0.80) {
-        engineGlowRef.current.intensity = 80 + Math.random() * 20;
-        opacity = 0.8 + Math.random() * 0.2;
+        engineGlowRef.current.intensity = 80 + fastRandom() * 20;
+        opacity = 0.8 + fastRandom() * 0.2;
         rocketRef.current.position.x = 0;
         rocketRef.current.position.z = 0;
       } else {
@@ -457,7 +482,7 @@ export function Rocket() {
         const sepProgress = (t - 0.80) / 0.10;
         stage1Ref.current.position.y = THREE.MathUtils.lerp(stage1Ref.current.position.y, -20 - sepProgress * 100, 0.05);
         stage1Ref.current.rotation.z = THREE.MathUtils.lerp(stage1Ref.current.rotation.z, 0.5, 0.02);
-        if (s2PlumeMat) s2PlumeMat.opacity = 0.8 + Math.random() * 0.2;
+        if (s2PlumeMat) s2PlumeMat.opacity = 0.8 + fastRandom() * 0.2;
       } else {
         stage1Ref.current.position.y = 0;
         stage1Ref.current.rotation.z = 0;
@@ -726,4 +751,4 @@ export function Rocket() {
       </group>
     </group>
   );
-}
+});
